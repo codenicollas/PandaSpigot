@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cswhite2000 <18whitechristop@gmail.com>
+Date: Fri, 9 Jan 2026 20:14:38 -0300
+Subject: [PATCH] Sanitise RegionFileCache and make configurable
+
+RegionFileCache prior to this patch would close every single open region file upon reaching a size of 256. This patch modifies that behaviour so it closes the least recently used RegionFile. The implementation uses a LinkedHashMap as an LRU cache (modified from HashMap). The maximum size of the RegionFileCache is also made configurable.
+
+diff --git a/src/main/java/net/minecraft/server/RegionFileCache.java b/src/main/java/net/minecraft/server/RegionFileCache.java
+index 4cfaf3005f94881d01e11f9bf9a771da141e190c..507ad675b695681c162fa22c60602297331c1990 100644
+--- a/src/main/java/net/minecraft/server/RegionFileCache.java
++++ b/src/main/java/net/minecraft/server/RegionFileCache.java
+@@ -1,6 +1,8 @@
+ package net.minecraft.server;
+ 
+ import com.google.common.collect.Maps;
++
++import org.github.paperspigot.PaperSpigotConfig;
+ import org.github.paperspigot.exception.ServerInternalException;
+ 
+ import java.io.DataInputStream;
+@@ -8,11 +10,12 @@ import java.io.DataOutputStream;
+ import java.io.File;
+ import java.io.IOException;
+ import java.util.Iterator;
++import java.util.LinkedHashMap;
+ import java.util.Map;
+ 
+ public class RegionFileCache {
+ 
+-    public static final Map<File, RegionFile> a = Maps.newHashMap(); // Spigot - private -> public
++    public static final Map<File, RegionFile> a = new LinkedHashMap<>(PaperSpigotConfig.regionFileCacheSize, 0.75f, true); // Spigot - private -> public, Paper - HashMap -> LinkedHashMap
+ 
+     // PaperSpigot start
+     public static synchronized RegionFile a(File file, int i, int j) {
+@@ -32,8 +35,8 @@ public class RegionFileCache {
+                 file1.mkdirs();
+             }
+ 
+-            if (RegionFileCache.a.size() >= 256) {
+-                a();
++            if (RegionFileCache.a.size() >= PaperSpigotConfig.regionFileCacheSize) { // Paper
++                trimCache();
+             }
+ 
+             RegionFile regionfile1 = new RegionFile(file2);
+@@ -43,6 +46,24 @@ public class RegionFileCache {
+         }
+     }
+ 
++    // Paper Start
++    private static synchronized void trimCache() {
++        Iterator<Map.Entry<File, RegionFile>> iterator = RegionFileCache.a.entrySet().iterator();
++        int count = RegionFileCache.a.size() - PaperSpigotConfig.regionFileCacheSize;
++
++        while (count-- >= 0 && iterator.hasNext()) {
++            try {
++                iterator.next().getValue().c();
++            } catch (IOException ioexception) {
++                ioexception.printStackTrace();
++                ServerInternalException.reportInternalException(ioexception);
++            }
++
++            iterator.remove();
++        }
++    }
++    // Paper End
++
+     public static synchronized void a() {
+         Iterator iterator = RegionFileCache.a.values().iterator();
+ 
+diff --git a/src/main/java/org/github/paperspigot/PaperSpigotConfig.java b/src/main/java/org/github/paperspigot/PaperSpigotConfig.java
+index ca4ed0ff2db6a32adc967f56b34cadb3a899d067..7962e70e26b43c21d3fad0af74b100d9253741d5 100644
+--- a/src/main/java/org/github/paperspigot/PaperSpigotConfig.java
++++ b/src/main/java/org/github/paperspigot/PaperSpigotConfig.java
+@@ -169,6 +169,11 @@ public class PaperSpigotConfig
+         }
+     }
+ 
++    public static int regionFileCacheSize = 256;
++    private static void regionFileCacheSize() {
++        regionFileCacheSize = getInt("settings.region-file-cache-size", 256);
++    }
++
+     public static double strengthEffectModifier;
+     public static double weaknessEffectModifier;
+     private static void effectModifiers()

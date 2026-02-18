@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: codenicollas <nicolas2006.capela@gmail.com>
+Date: Sat, 10 Jan 2026 12:16:00 -0300
+Subject: [PATCH] Optimise ActivationRange iteration
+
+Implements a faster entity iteration method in chunks (forEachEntity) to reduce overhead in ActivationRange checks. Adapted from Spottedleaf's patch.
+
+diff --git a/src/main/java/net/minecraft/server/Chunk.java b/src/main/java/net/minecraft/server/Chunk.java
+index 3297cea16b37144c1403e3d35254746581b71d89..3ffac203cbe1a800684bf9a6a72ebf724acd8383 100644
+--- a/src/main/java/net/minecraft/server/Chunk.java
++++ b/src/main/java/net/minecraft/server/Chunk.java
+@@ -1134,6 +1134,18 @@ public class Chunk {
+         world.timings.syncChunkLoadPostTimer.stopTiming(); // Spigot
+     }
+ 
++    // PandaSpigot start - Optimized iteration
++    public void forEachEntity(java.util.function.Consumer<Entity> consumer) {
++        for (int i = 0; i < this.entitySlices.length; ++i) {
++            List<Entity> slice = this.entitySlices[i];
++
++            for (int j = 0; j < slice.size(); ++j) {
++                consumer.accept(slice.get(j));
++            }
++        }
++    }
++    // PandaSpigot end
++
+     public BlockPosition h(BlockPosition blockposition) {
+         int i = blockposition.getX() & 15;
+         int j = blockposition.getZ() & 15;
+diff --git a/src/main/java/org/spigotmc/ActivationRange.java b/src/main/java/org/spigotmc/ActivationRange.java
+index 90b7238567952a7ee365f9c1fef3d9a5e10e7a80..516cf6aa6c330a7a4242046f12d2ee6b6fdc7806 100644
+--- a/src/main/java/org/spigotmc/ActivationRange.java
++++ b/src/main/java/org/spigotmc/ActivationRange.java
+@@ -146,43 +146,35 @@ public class ActivationRange
+      *
+      * @param chunk
+      */
+-    private static void activateChunkEntities(Chunk chunk)
+-    {
+-        for ( List<Entity> slice : chunk.entitySlices )
+-        {
+-            for ( Entity entity : slice )
+-            {
+-                if ( MinecraftServer.currentTick > entity.activatedTick )
+-                {
+-                    if ( entity.defaultActivationState )
+-                    {
+-                        entity.activatedTick = MinecraftServer.currentTick;
+-                        continue;
+-                    }
+-                    switch ( entity.activationType )
+-                    {
+-                        case 1:
+-                            if ( monsterBB.b( entity.getBoundingBox() ) )
+-                            {
+-                                entity.activatedTick = MinecraftServer.currentTick;
+-                            }
+-                            break;
+-                        case 2:
+-                            if ( animalBB.b( entity.getBoundingBox() ) )
+-                            {
+-                                entity.activatedTick = MinecraftServer.currentTick;
+-                            }
+-                            break;
+-                        case 3:
+-                        default:
+-                            if ( miscBB.b( entity.getBoundingBox() ) )
+-                            {
+-                                entity.activatedTick = MinecraftServer.currentTick;
+-                            }
+-                    }
++    private static void activateChunkEntities(Chunk chunk) {
++        // PandaSpigot start - Optimize iteration
++        chunk.forEachEntity(entity -> {
++            if (MinecraftServer.currentTick > entity.activatedTick) {
++                if (entity.defaultActivationState) {
++                    entity.activatedTick = MinecraftServer.currentTick;
++                    return;
++                }
++
++                switch (entity.activationType) {
++                    case 1:
++                        if (monsterBB.b(entity.getBoundingBox())) {
++                            entity.activatedTick = MinecraftServer.currentTick;
++                        }
++                        break;
++                    case 2:
++                        if (animalBB.b(entity.getBoundingBox())) {
++                            entity.activatedTick = MinecraftServer.currentTick;
++                        }
++                        break;
++                    case 3:
++                    default:
++                        if (miscBB.b(entity.getBoundingBox())) {
++                            entity.activatedTick = MinecraftServer.currentTick;
++                        }
+                 }
+             }
+-        }
++        });
++        // PandaSpigot end
+     }
+ 
+     /**

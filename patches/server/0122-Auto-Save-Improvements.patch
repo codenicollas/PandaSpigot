@@ -1,0 +1,239 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cswhite2000 <18whitechristop@gmail.com>
+Date: Fri, 9 Jan 2026 20:05:56 -0300
+Subject: [PATCH] Auto Save Improvements
+
+Makes Auto Save Rate setting configurable per-world. Process auto save every tick instead of once per auto tick interval. Re-introduce a cap per tick for auto save. Adds incremental player auto saving.
+
+diff --git a/src/main/java/net/minecraft/server/Chunk.java b/src/main/java/net/minecraft/server/Chunk.java
+index 3cb8d99311e2fa9a4a1173f6ef9e8dee957b20fa..987374b32fff46a0407e952eb49e4396250da773 100644
+--- a/src/main/java/net/minecraft/server/Chunk.java
++++ b/src/main/java/net/minecraft/server/Chunk.java
+@@ -1062,11 +1062,9 @@ public class Chunk {
+             if (this.r && this.world.getTime() != this.lastSaved || this.q) {
+                 return true;
+             }
+-        } else if (this.r && this.world.getTime() >= this.lastSaved + MinecraftServer.getServer().autosavePeriod * 4) { // Spigot - Only save if we've passed 2 auto save intervals without modification
+-            return true;
+         }
+ 
+-        return this.q;
++        return ((this.q || this.r) && this.world.getTime() >= this.lastSaved + world.paperSpigotConfig.autoSavePeriod); // Paper - Make world configurable and incremental
+     }
+ 
+     public Random a(long i) {
+diff --git a/src/main/java/net/minecraft/server/ChunkProviderServer.java b/src/main/java/net/minecraft/server/ChunkProviderServer.java
+index 041ede2857ddcc6fc8a4f52318ef4ba9d975782a..0e8856e77e3a134cdbddb792a7f1717289b7e0a7 100644
+--- a/src/main/java/net/minecraft/server/ChunkProviderServer.java
++++ b/src/main/java/net/minecraft/server/ChunkProviderServer.java
+@@ -352,7 +352,7 @@ public class ChunkProviderServer implements IChunkProvider {
+                 this.saveChunk(chunk);
+                 chunk.f(false);
+                 ++i;
+-                if (i == 24 && !flag && false) { // Spigot
++                if (!flag && i >= world.paperSpigotConfig.maxAutoSaveChunksPerTick) { // Spigot - // Paper - Incremental Auto Save - cap max per tick
+                     return false;
+                 }
+             }
+diff --git a/src/main/java/net/minecraft/server/EntityPlayer.java b/src/main/java/net/minecraft/server/EntityPlayer.java
+index 7933d3191b9f61b4880d85ba99126bf9221a3dff..8e3b26af5387180edc064512343b9079b12b1bb6 100644
+--- a/src/main/java/net/minecraft/server/EntityPlayer.java
++++ b/src/main/java/net/minecraft/server/EntityPlayer.java
+@@ -28,6 +28,7 @@ public class EntityPlayer extends EntityHuman implements ICrafting {
+ 
+     private static final Logger bH = LogManager.getLogger();
+     public String locale = "en_US"; // Spigot
++    public long lastSave = MinecraftServer.currentTick; // Paper
+     public PlayerConnection playerConnection;
+     public final MinecraftServer server;
+     public final PlayerInteractManager playerInteractManager;
+diff --git a/src/main/java/net/minecraft/server/MinecraftServer.java b/src/main/java/net/minecraft/server/MinecraftServer.java
+index 8d36a79ab6abbf6c0f0bcf8ed4f6e2c852dbd86a..ebf47469918c3adfae6c2e1ebe74a214d2266165 100644
+--- a/src/main/java/net/minecraft/server/MinecraftServer.java
++++ b/src/main/java/net/minecraft/server/MinecraftServer.java
+@@ -46,6 +46,7 @@ import joptsimple.OptionSet;
+ 
+ import org.bukkit.craftbukkit.Main;
+ import co.aikar.timings.SpigotTimings; // Spigot
++import org.github.paperspigot.PaperSpigotConfig;
+ // CraftBukkit end
+ 
+ public abstract class MinecraftServer implements Runnable, ICommandListener, IAsyncTaskHandler, IMojangStatistics {
+@@ -115,6 +116,7 @@ public abstract class MinecraftServer implements Runnable, ICommandListener, IAs
+     public final Thread primaryThread;
+     public java.util.Queue<Runnable> processQueue = new java.util.concurrent.ConcurrentLinkedQueue<Runnable>();
+     public int autosavePeriod;
++    public boolean serverAutoSave = false; // Paper
+     // CraftBukkit end
+ 
+     public MinecraftServer(OptionSet options, Proxy proxy, File file1) {
+@@ -769,24 +771,35 @@ public abstract class MinecraftServer implements Runnable, ICommandListener, IAs
+             this.r.b().a(agameprofile);
+         }
+ 
+-        if (autosavePeriod > 0 && this.ticks % autosavePeriod == 0) { // CraftBukkit
++
+             SpigotTimings.worldSaveTimer.startTiming(); // Spigot
+             this.methodProfiler.a("save");
+-            this.v.savePlayers();
++
++            serverAutoSave = (autosavePeriod > 0 && this.ticks % autosavePeriod == 0); // Paper
++            int playerSaveInterval = PaperSpigotConfig.playerAutoSaveRate;
++
++            if (playerSaveInterval < 0) {
++                playerSaveInterval = autosavePeriod;
++            }
++
++            if (playerSaveInterval > 0) { // CraftBukkit // Paper
++                this.v.savePlayers(playerSaveInterval);
++            }
+             // Spigot Start
+             // We replace this with saving each individual world as this.saveChunks(...) is broken,
+             // and causes the main thread to sleep for random amounts of time depending on chunk activity
+             // Also pass flag to only save modified chunks
+             server.playerCommandState = true;
+             for (World world : worlds) {
+-                world.getWorld().save(false);
++                if (world.paperSpigotConfig.autoSavePeriod > 0) world.getWorld().save(false); // Paper - Incremental / Configurable Auto Saving
+             }
+             server.playerCommandState = false;
+             // this.saveChunks(true);
+             // Spigot End
+             this.methodProfiler.b();
+             SpigotTimings.worldSaveTimer.stopTiming(); // Spigot
+-        }
++        //}// Paper - Incremental Auto Saving
++        
+ 
+         this.methodProfiler.a("tallying");
+         this.h[this.ticks % 100] = System.nanoTime() - i;
+diff --git a/src/main/java/net/minecraft/server/PlayerList.java b/src/main/java/net/minecraft/server/PlayerList.java
+index c4c5b16c42719c802c928c871858f2c99021c9db..0d7e8dba325caf3cdb336f9c32ffd09faacaf710 100644
+--- a/src/main/java/net/minecraft/server/PlayerList.java
++++ b/src/main/java/net/minecraft/server/PlayerList.java
+@@ -36,6 +36,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
+ import org.bukkit.event.player.PlayerRespawnEvent;
+ import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
+ import org.bukkit.util.Vector;
++import org.github.paperspigot.PaperSpigotConfig;
+ import org.spigotmc.event.player.PlayerSpawnLocationEvent;
+ // CraftBukkit end
+ 
+@@ -295,6 +296,7 @@ public abstract class PlayerList {
+     }
+ 
+     protected void savePlayerFile(EntityPlayer entityplayer) {
++        entityplayer.lastSave = MinecraftServer.currentTick; // Paper
+         this.playerFileData.save(entityplayer);
+         ServerStatisticManager serverstatisticmanager = (ServerStatisticManager) this.o.get(entityplayer.getUniqueID());
+ 
+@@ -1082,13 +1084,30 @@ public abstract class PlayerList {
+ 
+     }
+ 
++    // Paper start
+     public void savePlayers() {
++        savePlayers(null);
++    }
++
++    public void savePlayers(Integer interval) {
++        long now = MinecraftServer.currentTick;
++        int numSaved = 0; // Paper
++
+         for (int i = 0; i < this.players.size(); ++i) {
+-            this.savePlayerFile((EntityPlayer) this.players.get(i));
+-        }
++            EntityPlayer entityplayer = this.players.get(i);
++
++            if (interval == null || now - entityplayer.lastSave >= interval) {
++                this.savePlayerFile(entityplayer);
+ 
++                if (interval != null && ++numSaved >= PaperSpigotConfig.maxPlayerAutoSavePerTick) {
++                    break; // Paper
++                }
++            }
++        }
+     }
+ 
++    // Paper end
++
+     public void addWhitelist(GameProfile gameprofile) {
+         this.whitelist.add(new WhiteListEntry(gameprofile));
+     }
+diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java/net/minecraft/server/WorldServer.java
+index ae32309798ff3e9c857bd144ecdc740440079ce4..87ae12c90541ae918083fcad314c4f5538143940 100644
+--- a/src/main/java/net/minecraft/server/WorldServer.java
++++ b/src/main/java/net/minecraft/server/WorldServer.java
+@@ -939,7 +939,8 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+ 
+     public void save(boolean flag, IProgressUpdate iprogressupdate) throws ExceptionWorldConflict {
+         if (this.chunkProvider.canSave()) {
+-            org.bukkit.Bukkit.getPluginManager().callEvent(new org.bukkit.event.world.WorldSaveEvent(getWorld())); // CraftBukkit
++            if (flag) org.bukkit.Bukkit.getPluginManager().callEvent(new org.bukkit.event.world.WorldSaveEvent(getWorld())); // CraftBukkit // Paper - Incremental Auto Saving - Only fire event on full save
++            if (flag || server.serverAutoSave) {
+             if (iprogressupdate != null) {
+                 iprogressupdate.a("Saving level");
+             }
+@@ -948,6 +949,7 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+             if (iprogressupdate != null) {
+                 iprogressupdate.c("Saving chunks");
+             }
++        }
+ 
+             if (!this.pandaSpigotConfig.disableChunkSaving) { // PandaSpigot - Configurable chunk saving
+             this.chunkProvider.saveChunks(flag, iprogressupdate);
+diff --git a/src/main/java/org/github/paperspigot/PaperSpigotConfig.java b/src/main/java/org/github/paperspigot/PaperSpigotConfig.java
+index b118ecd457df670f34623800264435d46a2b4c71..ca4ed0ff2db6a32adc967f56b34cadb3a899d067 100644
+--- a/src/main/java/org/github/paperspigot/PaperSpigotConfig.java
++++ b/src/main/java/org/github/paperspigot/PaperSpigotConfig.java
+@@ -159,6 +159,16 @@ public class PaperSpigotConfig
+         }
+     }
+ 
++    public static int playerAutoSaveRate = -1;
++    public static int maxPlayerAutoSavePerTick = 10;
++    private static void playerAutoSaveRate() {
++        playerAutoSaveRate = getInt("settings.player-auto-save-rate", -1);
++        maxPlayerAutoSavePerTick = getInt("settings.max-player-auto-save-per-tick", -1);
++        if (maxPlayerAutoSavePerTick == -1) { // -1 Automatic / "Recommended"
++            maxPlayerAutoSavePerTick = (playerAutoSaveRate == -1 || playerAutoSaveRate > 100) ? 10 : 20;
++        }
++    }
++
+     public static double strengthEffectModifier;
+     public static double weaknessEffectModifier;
+     private static void effectModifiers()
+diff --git a/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java b/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
+index 67e56df017b98222e64fc46e97a2b104e6f0d69f..1b598b68e6822be74e8750a942bbbabd7bc21619 100644
+--- a/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
++++ b/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
+@@ -4,6 +4,8 @@ import java.util.List;
+ import org.bukkit.Bukkit;
+ import org.bukkit.configuration.file.YamlConfiguration;
+ 
++import net.minecraft.server.MinecraftServer;
++
+ public class PaperSpigotWorldConfig
+ {
+ 
+@@ -408,4 +410,20 @@ public class PaperSpigotWorldConfig
+     {
+         disableTeleportationSuffocationCheck = getBoolean("disable-teleportation-suffocation-check", false);
+     }
++
++    public int autoSavePeriod = -1;
++    private void autoSavePeriod() {
++        autoSavePeriod = getInt("auto-save-interval", -1);
++
++        if (autoSavePeriod > 0) {
++            log("Auto Save Interval: " +autoSavePeriod + " (" + (autoSavePeriod / 20) + "s)");
++        } else if (autoSavePeriod < 0) {
++            autoSavePeriod = MinecraftServer.getServer().autosavePeriod;
++        }
++    }
++
++    public int maxAutoSaveChunksPerTick = 24;
++    private void maxAutoSaveChunksPerTick() {
++        maxAutoSaveChunksPerTick = getInt("max-auto-save-chunks-per-tick", 24);
++    }
+ }

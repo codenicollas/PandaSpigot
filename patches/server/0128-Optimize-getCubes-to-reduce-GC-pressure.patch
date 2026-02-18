@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: codenicollas <nicolas2006.capela@gmail.com>
+Date: Sat, 10 Jan 2026 12:38:18 -0300
+Subject: [PATCH] Optimize getCubes to reduce GC pressure
+
+Replaces repeated BlockPosition allocations with a single reusable MutableBlockPosition in the entity collision loop (getCubes). This significantly reduces memory allocation rates during heavy entity activity. Logic adapted from NachoSpigot.
+
+diff --git a/src/main/java/net/minecraft/server/World.java b/src/main/java/net/minecraft/server/World.java
+index fe9b4ea7584587c4a4d198e01fc21838ec59f471..59a67e59cc8fec050725c2dd5a28f785de543795 100644
+--- a/src/main/java/net/minecraft/server/World.java
++++ b/src/main/java/net/minecraft/server/World.java
+@@ -1288,8 +1288,9 @@ public abstract class World implements IBlockAccess {
+         WorldBorder worldborder = this.getWorldBorder();
+         boolean flag = entity.aT();
+         boolean flag1 = this.a(worldborder, entity);
+-        IBlockData iblockdata = Blocks.STONE.getBlockData();
+-        BlockPosition.MutableBlockPosition blockposition_mutableblockposition = new BlockPosition.MutableBlockPosition();
++        // IBlockData iblockdata = Blocks.STONE.getBlockData(); // Unused
++
++        BlockPosition.MutableBlockPosition mutablePos = new BlockPosition.MutableBlockPosition();
+ 
+         // Spigot start
+         int ystart = ( ( k - 1 ) < 0 ) ? 0 : ( k - 1 );
+@@ -1323,7 +1324,7 @@ public abstract class World implements IBlockAccess {
+                     {
+                         for ( int y = ystart; y < l; y++ )
+                         {
+-                            BlockPosition blockposition = new BlockPosition( x, y, z );
++                            mutablePos.c(x, y, z);
+ 
+                             if (flag && flag1) {
+                                 entity.h(false);
+@@ -1332,11 +1333,11 @@ public abstract class World implements IBlockAccess {
+                             }
+ 
+                             IBlockData block; 
+-                            if (!this.getWorldBorder().a(blockposition) && flag1) {
++                            if (!this.getWorldBorder().a(mutablePos) && flag1) {
+                                 block = Blocks.STONE.getBlockData();
+                             } else 
+                             {
+-                                block = chunk.getBlockData( blockposition );
++                                block = chunk.getBlockData(mutablePos);
+                             }
+                             if ( block != null )
+                             {
+@@ -1346,7 +1347,7 @@ public abstract class World implements IBlockAccess {
+                                     AxisAlignedBB aabb = AxisAlignedBB.a(x, y, z, x + 1.0, y + 1.0, z + 1.0);
+                                     if (axisalignedbb.b(aabb)) arraylist.add(aabb);
+                                 } else {
+-                                    b.a(this, blockposition, block, axisalignedbb, arraylist, entity);
++                                    b.a(this, mutablePos, block, axisalignedbb, arraylist, entity);
+                                 }
+                                 // PaperSpigot end
+                             }

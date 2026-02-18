@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cswhite2000 <18whitechristop@gmail.com>
+Date: Fri, 9 Jan 2026 20:18:45 -0300
+Subject: [PATCH] Option to remove corrupt tile entities
+
+
+diff --git a/src/main/java/net/minecraft/server/Chunk.java b/src/main/java/net/minecraft/server/Chunk.java
+index 987374b32fff46a0407e952eb49e4396250da773..3297cea16b37144c1403e3d35254746581b71d89 100644
+--- a/src/main/java/net/minecraft/server/Chunk.java
++++ b/src/main/java/net/minecraft/server/Chunk.java
+@@ -45,7 +45,7 @@ public class Chunk {
+     private boolean done;
+     private boolean lit;
+     private boolean p;
+-    private boolean q;
++    private boolean q;public void markDirty() { this.q = true; }// Paper
+     private boolean r;
+     private long lastSaved;
+     private int t;
+@@ -889,11 +889,19 @@ public class Chunk {
+                     "Chunk coordinates: " + (this.locX * 16) + "," + (this.locZ * 16));
+             e.printStackTrace();
+             ServerInternalException.reportInternalException(e);
++
++            if (this.world.paperSpigotConfig.removeCorruptTEs) {
++                this.removeTileEntity(tileentity.getPosition());
++                this.markDirty();
++                org.bukkit.Bukkit.getLogger().info("Removing corrupt tile entity");
++            }
+             // Paper end
+             // CraftBukkit end
+         }
+     }
+ 
++    public void removeTileEntity(BlockPosition blockposition) { this.e(blockposition); } // Paper - OBFHELPER
++
+     public void e(BlockPosition blockposition) {
+         if (this.h) {
+             TileEntity tileentity = (TileEntity) this.tileEntities.remove(blockposition);
+diff --git a/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java b/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
+index 1b598b68e6822be74e8750a942bbbabd7bc21619..1848c2a6d0c959fed961e56d8d25db462eb6758a 100644
+--- a/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
++++ b/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
+@@ -426,4 +426,9 @@ public class PaperSpigotWorldConfig
+     private void maxAutoSaveChunksPerTick() {
+         maxAutoSaveChunksPerTick = getInt("max-auto-save-chunks-per-tick", 24);
+     }
++
++    public boolean removeCorruptTEs = false;
++    private void removeCorruptTEs() {
++        removeCorruptTEs = getBoolean("remove-corrupt-tile-entities", false);
++    }
+ }

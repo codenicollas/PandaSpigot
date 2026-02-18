@@ -1,0 +1,262 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Spottedleaf <spottedleaf@spottedleaf.dev>
+Date: Sat, 10 Jan 2026 19:02:20 -0300
+Subject: [PATCH] Separate lookup locking from state access in UserCache
+
+Prevent lookups from stalling simple state access/write calls. This fixes server freezes when plugins look up offline players.
+
+diff --git a/src/main/java/net/minecraft/server/UserCache.java b/src/main/java/net/minecraft/server/UserCache.java
+index a989de2caee8e1cdea731fcf7dd112a4a6dd840a..5d549a5ebab0352619e02ed3ce33191aa2c31df0 100644
+--- a/src/main/java/net/minecraft/server/UserCache.java
++++ b/src/main/java/net/minecraft/server/UserCache.java
+@@ -28,6 +28,7 @@ import java.text.ParseException;
+ import java.text.SimpleDateFormat;
+ import java.util.ArrayList;
+ import java.util.Calendar;
++import java.util.concurrent.locks.ReentrantLock;
+ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.LinkedList;
+@@ -46,6 +47,8 @@ public class UserCache {
+     private final MinecraftServer f;
+     protected final Gson b;
+     private final File g;
++    protected final ReentrantLock stateLock = new ReentrantLock();
++    protected final ReentrantLock lookupLock = new ReentrantLock();
+     private static final ParameterizedType h = new ParameterizedType() {
+         public Type[] getActualTypeArguments() {
+             return new Type[] { UserCache.UserCacheEntry.class};
+@@ -115,6 +118,9 @@ public class UserCache {
+         String s = gameprofile.getName().toLowerCase(Locale.ROOT);
+         UserCache.UserCacheEntry usercache_usercacheentry = new UserCache.UserCacheEntry(gameprofile, date, null);
+ 
++        // Tuinity start - Lock state
++        this.stateLock.lock();
++        try {
+         if (this.d.containsKey(uuid)) {
+             UserCache.UserCacheEntry usercache_usercacheentry1 = (UserCache.UserCacheEntry) this.d.get(uuid);
+ 
+@@ -125,68 +131,115 @@ public class UserCache {
+         this.c.put(gameprofile.getName().toLowerCase(Locale.ROOT), usercache_usercacheentry);
+         this.d.put(uuid, usercache_usercacheentry);
+         this.e.addFirst(gameprofile);
++    } finally {
++        this.stateLock.unlock();
++    }
++    // Tuinity end
+         if( !org.spigotmc.SpigotConfig.saveUserCacheOnStopOnly ) this.c(); // Spigot - skip saving if disabled
+     }
+ 
++    // Tuinity start - Rewrite getProfile to separate locks
+     public GameProfile getProfile(String s) {
+         String s1 = s.toLowerCase(Locale.ROOT);
+-        UserCache.UserCacheEntry usercache_usercacheentry = (UserCache.UserCacheEntry) this.c.get(s1);
++        GameProfile gameprofile = null;
++
++        this.stateLock.lock();
++        try {
++            UserCache.UserCacheEntry usercache_usercacheentry = (UserCache.UserCacheEntry) this.c.get(s1);
++
++            if (usercache_usercacheentry != null && (new Date()).getTime() >= usercache_usercacheentry.c.getTime()) {
++                this.d.remove(usercache_usercacheentry.a().getId());
++                this.c.remove(usercache_usercacheentry.a().getName().toLowerCase(Locale.ROOT));
++                this.e.remove(usercache_usercacheentry.a());
++                usercache_usercacheentry = null;
++            }
+ 
+-        if (usercache_usercacheentry != null && (new Date()).getTime() >= usercache_usercacheentry.c.getTime()) {
+-            this.d.remove(usercache_usercacheentry.a().getId());
+-            this.c.remove(usercache_usercacheentry.a().getName().toLowerCase(Locale.ROOT));
+-            this.e.remove(usercache_usercacheentry.a());
+-            usercache_usercacheentry = null;
++            if (usercache_usercacheentry != null) {
++                gameprofile = usercache_usercacheentry.a();
++                this.e.remove(gameprofile);
++                this.e.addFirst(gameprofile);
++            }
++        } finally {
++            this.stateLock.unlock();
+         }
+ 
+-        GameProfile gameprofile;
++        if (gameprofile != null) {
++            if (!org.spigotmc.SpigotConfig.saveUserCacheOnStopOnly)
++                this.c();
++            return gameprofile;
++        }
+ 
+-        if (usercache_usercacheentry != null) {
+-            gameprofile = usercache_usercacheentry.a();
+-            this.e.remove(gameprofile);
+-            this.e.addFirst(gameprofile);
+-        } else {
++        this.lookupLock.lock();
++        try {
+             gameprofile = a(this.f, s); // Spigot - use correct case for offline players
+-            if (gameprofile != null) {
+-                this.a(gameprofile);
+-                usercache_usercacheentry = (UserCache.UserCacheEntry) this.c.get(s1);
+-            }
++        } finally {
++            this.lookupLock.unlock();
+         }
+ 
+-        if( !org.spigotmc.SpigotConfig.saveUserCacheOnStopOnly ) this.c(); // Spigot - skip saving if disabled
+-        return usercache_usercacheentry == null ? null : usercache_usercacheentry.a();
++        if (gameprofile != null) {
++            this.a(gameprofile);
++        }
++
++        if (!org.spigotmc.SpigotConfig.saveUserCacheOnStopOnly)
++            this.c();
++        return gameprofile;
+     }
++
++    // Tuinity end
+     // PandaSpigot start
+     public GameProfile getProfileIfCached(String name) {
+-        UserCache.UserCacheEntry entry = this.c.get(name.toLowerCase(Locale.ROOT));
+-        return entry == null ? null : entry.b;
++        this.stateLock.lock();
++        try { // Tuinity
++            UserCache.UserCacheEntry entry = this.c.get(name.toLowerCase(Locale.ROOT));
++            return entry == null ? null : entry.b;
++        } finally {
++            this.stateLock.unlock();
++        } // Tuinity
+     }
+     // PandaSpigot end
+ 
+     public String[] a() {
+-        ArrayList arraylist = Lists.newArrayList(this.c.keySet());
++        this.stateLock.lock();
++        try { // Tuinity
++            ArrayList arraylist = Lists.newArrayList(this.c.keySet());
+ 
+-        return (String[]) arraylist.toArray(new String[arraylist.size()]);
++            return (String[]) arraylist.toArray(new String[arraylist.size()]);
++        } finally {
++            this.stateLock.unlock();
++        } // Tuinity
+     }
+ 
+-    public GameProfile getProfile(UUID uuid) { return this.a(uuid); } // PandaSpigot - OBFHELPER
++    public GameProfile getProfile(UUID uuid) {
++        return this.a(uuid);
++    } // PandaSpigot - OBFHELPER
++
+     public GameProfile a(UUID uuid) {
+-        UserCache.UserCacheEntry usercache_usercacheentry = (UserCache.UserCacheEntry) this.d.get(uuid);
++        this.stateLock.lock();
++        try { // Tuinity
++            UserCache.UserCacheEntry usercache_usercacheentry = (UserCache.UserCacheEntry) this.d.get(uuid);
+ 
+-        return usercache_usercacheentry == null ? null : usercache_usercacheentry.a();
++            return usercache_usercacheentry == null ? null : usercache_usercacheentry.a();
++        } finally {
++            this.stateLock.unlock();
++        } // Tuinity
+     }
+ 
+     private UserCache.UserCacheEntry b(UUID uuid) {
+-        UserCache.UserCacheEntry usercache_usercacheentry = (UserCache.UserCacheEntry) this.d.get(uuid);
++        this.stateLock.lock();
++        try { // Tuinity
++            UserCache.UserCacheEntry usercache_usercacheentry = (UserCache.UserCacheEntry) this.d.get(uuid);
+ 
+-        if (usercache_usercacheentry != null) {
+-            GameProfile gameprofile = usercache_usercacheentry.a();
++            if (usercache_usercacheentry != null) {
++                GameProfile gameprofile = usercache_usercacheentry.a();
+ 
+-            this.e.remove(gameprofile);
+-            this.e.addFirst(gameprofile);
+-        }
++                this.e.remove(gameprofile);
++                this.e.addFirst(gameprofile);
++            }
+ 
+-        return usercache_usercacheentry;
++            return usercache_usercacheentry;
++        } finally {
++            this.stateLock.unlock();
++        } // Tuinity
+     }
+ 
+     public void b() {
+@@ -196,6 +249,8 @@ public class UserCache {
+             bufferedreader = Files.newReader(this.g, Charsets.UTF_8);
+             List list = (List) this.b.fromJson(bufferedreader, UserCache.h);
+ 
++            this.stateLock.lock();
++            try {
+             this.c.clear();
+             this.d.clear();
+             this.e.clear();
+@@ -208,6 +263,10 @@ public class UserCache {
+                     this.a(usercache_usercacheentry.a(), usercache_usercacheentry.b());
+                 }
+             }
++        } finally {
++            this.stateLock.unlock();
++        }
++        // Tuinity end
+         } catch (FileNotFoundException filenotfoundexception) {
+             ;
+         // Spigot Start
+@@ -220,11 +279,19 @@ public class UserCache {
+         } finally {
+             IOUtils.closeQuietly(bufferedreader);
+         }
+-
+     }
+ 
+     public void c() {
+-        String s = this.b.toJson(this.a(org.spigotmc.SpigotConfig.userCacheCap));
++        String s;
++        
++        this.stateLock.lock();
++        try {
++            s = this.b.toJson(this.a(org.spigotmc.SpigotConfig.userCacheCap));
++        } finally {
++            this.stateLock.unlock();
++        }
++        // Tuinity end
++
+         BufferedWriter bufferedwriter = null;
+ 
+         try {
+@@ -243,17 +310,26 @@ public class UserCache {
+ 
+     private List<UserCache.UserCacheEntry> a(int i) {
+         ArrayList arraylist = Lists.newArrayList();
+-        ArrayList arraylist1 = Lists.newArrayList(Iterators.limit(this.e.iterator(), i));
+-        Iterator iterator = arraylist1.iterator();
+ 
+-        while (iterator.hasNext()) {
+-            GameProfile gameprofile = (GameProfile) iterator.next();
+-            UserCache.UserCacheEntry usercache_usercacheentry = this.b(gameprofile.getId());
++        // Tuinity start
++        this.stateLock.lock();
+ 
+-            if (usercache_usercacheentry != null) {
+-                arraylist.add(usercache_usercacheentry);
++        try {
++            ArrayList arraylist1 = Lists.newArrayList(Iterators.limit(this.e.iterator(), i));
++            Iterator iterator = arraylist1.iterator();
++
++            while (iterator.hasNext()) {
++                GameProfile gameprofile = (GameProfile) iterator.next();
++                UserCache.UserCacheEntry usercache_usercacheentry = this.b(gameprofile.getId());
++
++                if (usercache_usercacheentry != null) {
++                    arraylist.add(usercache_usercacheentry);
++                }
+             }
++        } finally {
++            this.stateLock.unlock();
+         }
++        // Tuinity end
+ 
+         return arraylist;
+     }

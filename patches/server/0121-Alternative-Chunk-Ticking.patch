@@ -1,0 +1,203 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: codenicollas <nicolas2006.capela@gmail.com>
+Date: Fri, 9 Jan 2026 16:25:11 -0300
+Subject: [PATCH] Alternative Chunk Ticking
+
+
+diff --git a/src/main/java/net/minecraft/server/PlayerChunkMap.java b/src/main/java/net/minecraft/server/PlayerChunkMap.java
+index 1c9dbe212cfbeb571f1e09f224fb7ed905dd475b..0330934ff962f7fc00cd72a7d1017b14a49bdcfd 100644
+--- a/src/main/java/net/minecraft/server/PlayerChunkMap.java
++++ b/src/main/java/net/minecraft/server/PlayerChunkMap.java
+@@ -15,6 +15,10 @@ import org.bukkit.craftbukkit.chunkio.ChunkIOExecutor;
+ import java.util.HashMap;
+ // CraftBukkit end
+ 
++// PandaSpigot start
++import com.google.common.collect.AbstractIterator;
++// PandaSpigot end
++
+ public class PlayerChunkMap {
+ 
+     private static final Logger a = LogManager.getLogger();
+@@ -79,6 +83,42 @@ public class PlayerChunkMap {
+ 
+     }
+ 
++    // PandaSpigot start
++    public Iterator<Chunk> getActiveChunks() {
++        final Iterator<PlayerChunk> iterator = this.f.iterator();
++
++        return new AbstractIterator<Chunk>() {
++            @Override
++            protected Chunk computeNext() {
++                while (iterator.hasNext()) {
++                    PlayerChunk playerChunk = iterator.next();
++                    Chunk chunk = playerChunk.getChunk();
++
++                    if (chunk == null) {
++                        continue;
++                    }
++
++                    if (!chunk.u() && chunk.isDone()) {
++                        return chunk;
++                    }
++
++                    if (!chunk.o()) {
++                        return chunk;
++                    }
++
++                    if (!playerChunk.hasPlayersNearby(128.0D)) {
++                        continue;
++                    }
++
++                    return chunk;
++                }
++                return endOfData();
++            }
++        };
++
++        // PandaSpigot end
++    }
++
+     public boolean a(int i, int j) {
+         long k = (long) i + 2147483647L | (long) j + 2147483647L << 32;
+ 
+@@ -553,6 +593,34 @@ public class PlayerChunkMap {
+             }
+ 
+         }
++
++        // PandaSpigot start
++        public Chunk getChunk() {
++            return PlayerChunkMap.this.world.getChunkAt(this.location.x, this.location.z);
++        }
++
++        public boolean hasPlayersNearby(double range) {
++            double rangeSq = range * range;
++
++            double chunkX = (this.location.x << 4) + 8;
++            double chunkZ = (this.location.z << 4) + 8;
++
++            for (EntityPlayer player : this.b) {
++                if (player.isSpectator()) {
++                    continue;
++                }
++
++                double dx = chunkX - player.locX;
++                double dz = chunkZ - player.locZ;
++
++                if ((dx * dx + dz * dz) < rangeSq) {
++                    return true;
++                }
++            }
++
++            return false;
++        }
++        // PandaSpigot end
+     }
+ 
+     // CraftBukkit start - Sorter to load nearby chunks first
+diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java/net/minecraft/server/WorldServer.java
+index 864b63f20167491ecef7e51be7d170d8b141d166..ae32309798ff3e9c857bd144ecdc740440079ce4 100644
+--- a/src/main/java/net/minecraft/server/WorldServer.java
++++ b/src/main/java/net/minecraft/server/WorldServer.java
+@@ -374,52 +374,40 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+ 
+     protected void h() {
+         super.h();
++
+         if (this.worldData.getType() == WorldType.DEBUG_ALL_BLOCK_STATES) {
+-            // Spigot start
+-           gnu.trove.iterator.TLongShortIterator iterator = this.chunkTickList.iterator();
++            // PandaSpigot start - Optimized Tick Loop for Debug
++           Iterator<Chunk> iterator = this.manager.getActiveChunks();
+ 
+             while (iterator.hasNext()) {
+-                iterator.advance();
+-                long chunkCoord = iterator.key();
+-
+-                this.getChunkAt(World.keyToX( chunkCoord ), World.keyToZ( chunkCoord )).b(false);
+-                // Spigot end
++                iterator.next().b(false);
+             }
+-
++            // PandaSpigot end
+         } else {
+-            int i = 0;
+-            int j = 0;
++            // PandaSpigot start - Alternative Chunk Ticking
++            //int i = 0; // Unused
++            //int j = 0; // Unused
+ 
+-            // CraftBukkit start
+-            //for (Iterator iterator1 = this.chunkTickList.iterator(); iterator1.hasNext(); this.methodProfiler.b()) {
+-            //    ChunkCoordIntPair chunkcoordintpair1 = (ChunkCoordIntPair) iterator1.next();
+-            //    int k = chunkcoordintpair1.x * 16;
+-            //    int l = chunkcoordintpair1.z * 16;
+-            // Spigot start
+-            for (gnu.trove.iterator.TLongShortIterator iter = chunkTickList.iterator(); iter.hasNext(); )
+-            {
+-                iter.advance();
+-                long chunkCoord = iter.key();
+-                int chunkX = World.keyToX( chunkCoord );
+-                int chunkZ = World.keyToZ( chunkCoord );
+-                // If unloaded, or in procedd of being unloaded, drop it
+-                if ( ( !this.chunkProvider.isChunkLoaded( chunkX, chunkZ ) ) || ( this.chunkProviderServer.unloadQueue.contains( chunkX, chunkZ ) ) )
+-                {
+-                    iter.remove();
+-                    continue;
+-                }
+-                // Spigot end
+-                // ChunkCoordIntPair chunkcoordintpair = (ChunkCoordIntPair) iterator.next();
+-                int k = chunkX * 16;
+-                int l = chunkZ * 16;
++            Iterator<Chunk> iterator = this.manager.getActiveChunks();
+ 
+-                this.methodProfiler.a("getChunk");
+-                Chunk chunk = this.getChunkAt(chunkX, chunkZ);
+-                // CraftBukkit end
++            while (iterator.hasNext()) {
++                Chunk chunk = iterator.next();
++
++                int k = chunk.locX * 16;
++                int l = chunk.locZ * 16;
+ 
++                this.methodProfiler.a("getChunk");
+                 this.a(k, l, chunk);
++
+                 this.methodProfiler.c("tickChunk");
++                // Spigot start
++                if (!chunk.areNeighborsLoaded(1)) {
++                    continue;
++                }
++                // Spigot End
++
+                 chunk.b(false);
++
+                 this.methodProfiler.c("thunder");
+                 int i1;
+                 BlockPosition blockposition;
+@@ -489,12 +477,12 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+                                 int k2 = i2 >> 8 & 15;
+                                 int l2 = i2 >> 16 & 15;
+ 
+-                                ++j;
++                                //++j; // PandaSpigot - removed unused counter
+                                 IBlockData iblockdata = chunksection.getType(j2, l2, k2);
+                                 Block block = iblockdata.getBlock();
+ 
+                                 if (block.isTicking()) {
+-                                    ++i;
++                                    // ++i; // PandaSpigot - removed unused counter
+                                     block.a((World) this, new BlockPosition(j2 + k, l2 + chunksection.getYPosition(), k2 + l), iblockdata, this.random);
+                                 }
+                             }
+@@ -504,6 +492,8 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+                 timings.chunkTicksBlocks.stopTiming(); // Spigot
+             }
+ 
++            // PandaSpigot end
++
+         }
+         // Spigot Start
+         if ( spigotConfig.clearChunksOnTick )

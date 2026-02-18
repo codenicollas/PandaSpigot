@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Juan Cruz Linsalata <LinsaFTW@users.noreply.github.com>
+Date: Sat, 10 Jan 2026 19:07:27 -0300
+Subject: [PATCH] Fixed chunk memory leak on world unload
+
+
+diff --git a/src/main/java/net/minecraft/server/ChunkProviderServer.java b/src/main/java/net/minecraft/server/ChunkProviderServer.java
+index 0e8856e77e3a134cdbddb792a7f1717289b7e0a7..a3d266b84b7c6ff825100b2eac04b2596db1ee85 100644
+--- a/src/main/java/net/minecraft/server/ChunkProviderServer.java
++++ b/src/main/java/net/minecraft/server/ChunkProviderServer.java
+@@ -32,7 +32,7 @@ public class ChunkProviderServer implements IChunkProvider {
+     public LongHashSet unloadQueue = new LongHashSet(); // CraftBukkit - LongHashSet
+     public Chunk emptyChunk;
+     public IChunkProvider chunkProvider;
+-    private IChunkLoader chunkLoader;
++    public IChunkLoader chunkLoader; // FlamePaper - private -> public
+     public boolean forceChunkLoad = false; // CraftBukkit - true -> false
+     public LongObjectHashMap<Chunk> chunks = new LongObjectHashMap<Chunk>();
+     public WorldServer world;
+diff --git a/src/main/java/net/minecraft/server/ChunkRegionLoader.java b/src/main/java/net/minecraft/server/ChunkRegionLoader.java
+index 6b244904d60ebbd2bf4a93a320c9b161e879451e..a01ea462e801ad5f7138c07d340c03582849149a 100644
+--- a/src/main/java/net/minecraft/server/ChunkRegionLoader.java
++++ b/src/main/java/net/minecraft/server/ChunkRegionLoader.java
+@@ -17,8 +17,8 @@ import org.apache.logging.log4j.Logger;
+ public class ChunkRegionLoader implements IChunkLoader, IAsyncChunkSaver {
+ 
+     private static final Logger a = LogManager.getLogger();
+-    private Map<ChunkCoordIntPair, NBTTagCompound> b = new ConcurrentHashMap();
+-    private Set<ChunkCoordIntPair> c = Collections.newSetFromMap(new ConcurrentHashMap());
++    public Map<ChunkCoordIntPair, NBTTagCompound> b = new ConcurrentHashMap();
++    public Set<ChunkCoordIntPair> c = Collections.newSetFromMap(new ConcurrentHashMap());
+     private final File d;
+     private boolean e = false;
+ 
+diff --git a/src/main/java/org/bukkit/craftbukkit/CraftServer.java b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
+index 2eac381a825ed0edabd12816432f6d2d655887ef..871558c82e54b2fa70c17f1fbbcda5ec64c35c5a 100644
+--- a/src/main/java/org/bukkit/craftbukkit/CraftServer.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
+@@ -1038,6 +1038,25 @@ public final class CraftServer implements Server {
+                 getLogger().log(Level.SEVERE, null, ex);
+             }
+         }
++        // FlamePaper start - Fix chunk memory leak
++        else {
++            ChunkProviderServer chunkProviderServer = handle.chunkProviderServer;
++            ChunkRegionLoader regionLoader = (ChunkRegionLoader) chunkProviderServer.chunkLoader;
++
++            regionLoader.b.clear();
++            regionLoader.c.clear();
++
++            try {
++                FileIOThread.a().b();
++            } catch (InterruptedException ex) {
++                Thread.currentThread().interrupt();
++            }
++
++            chunkProviderServer.chunkLoader = null;
++            chunkProviderServer.chunkProvider = null;
++            chunkProviderServer.chunks.clear();
++        }
++        // FlamePaper end
+ 
+         worlds.remove(world.getName().toLowerCase());
+         console.worlds.remove(console.worlds.indexOf(handle));
