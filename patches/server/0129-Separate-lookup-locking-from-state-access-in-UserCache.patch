@@ -36,7 +36,7 @@ index a989de2caee8e1cdea731fcf7dd112a4a6dd840a..5d549a5ebab0352619e02ed3ce33191a
          if (this.d.containsKey(uuid)) {
              UserCache.UserCacheEntry usercache_usercacheentry1 = (UserCache.UserCacheEntry) this.d.get(uuid);
  
-@@ -125,68 +131,115 @@ public class UserCache {
+@@ -125,68 +131,118 @@ public class UserCache {
          this.c.put(gameprofile.getName().toLowerCase(Locale.ROOT), usercache_usercacheentry);
          this.d.put(uuid, usercache_usercacheentry);
          this.e.addFirst(gameprofile);
@@ -92,11 +92,14 @@ index a989de2caee8e1cdea731fcf7dd112a4a6dd840a..5d549a5ebab0352619e02ed3ce33191a
 -        } else {
 +        this.lookupLock.lock();
 +        try {
++            gameprofile = getProfileIfCached(s);
++            if (gameprofile == null) {
              gameprofile = a(this.f, s); // Spigot - use correct case for offline players
 -            if (gameprofile != null) {
 -                this.a(gameprofile);
 -                usercache_usercacheentry = (UserCache.UserCacheEntry) this.c.get(s1);
 -            }
++            }
 +        } finally {
 +            this.lookupLock.unlock();
          }
@@ -184,7 +187,7 @@ index a989de2caee8e1cdea731fcf7dd112a4a6dd840a..5d549a5ebab0352619e02ed3ce33191a
      }
  
      public void b() {
-@@ -196,6 +249,8 @@ public class UserCache {
+@@ -196,6 +252,8 @@ public class UserCache {
              bufferedreader = Files.newReader(this.g, Charsets.UTF_8);
              List list = (List) this.b.fromJson(bufferedreader, UserCache.h);
  
@@ -193,7 +196,7 @@ index a989de2caee8e1cdea731fcf7dd112a4a6dd840a..5d549a5ebab0352619e02ed3ce33191a
              this.c.clear();
              this.d.clear();
              this.e.clear();
-@@ -208,6 +263,10 @@ public class UserCache {
+@@ -208,6 +266,10 @@ public class UserCache {
                      this.a(usercache_usercacheentry.a(), usercache_usercacheentry.b());
                  }
              }
@@ -204,7 +207,7 @@ index a989de2caee8e1cdea731fcf7dd112a4a6dd840a..5d549a5ebab0352619e02ed3ce33191a
          } catch (FileNotFoundException filenotfoundexception) {
              ;
          // Spigot Start
-@@ -220,11 +279,19 @@ public class UserCache {
+@@ -220,11 +282,19 @@ public class UserCache {
          } finally {
              IOUtils.closeQuietly(bufferedreader);
          }
@@ -226,7 +229,7 @@ index a989de2caee8e1cdea731fcf7dd112a4a6dd840a..5d549a5ebab0352619e02ed3ce33191a
          BufferedWriter bufferedwriter = null;
  
          try {
-@@ -243,17 +310,26 @@ public class UserCache {
+@@ -243,17 +313,26 @@ public class UserCache {
  
      private List<UserCache.UserCacheEntry> a(int i) {
          ArrayList arraylist = Lists.newArrayList();
