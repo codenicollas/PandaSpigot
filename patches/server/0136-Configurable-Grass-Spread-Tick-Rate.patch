@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: codenicollas <work.nicollas@gmail.com>
+Date: Sat, 21 Feb 2026 18:36:51 -0300
+Subject: [PATCH] Configurable Grass Spread Tick Rate
+
+
+diff --git a/src/main/java/net/minecraft/server/BlockGrass.java b/src/main/java/net/minecraft/server/BlockGrass.java
+index fdef82427d2721ac068f7d24025438c70f6e237c..3ccf24149680cbb34bdaa57893c1a550f3600906 100644
+--- a/src/main/java/net/minecraft/server/BlockGrass.java
++++ b/src/main/java/net/minecraft/server/BlockGrass.java
+@@ -28,6 +28,7 @@ public class BlockGrass extends Block implements IBlockFragilePlantElement {
+     }
+ 
+     public void b(World world, BlockPosition blockposition, IBlockData iblockdata, Random random) {
++        if (world.paperSpigotConfig.grassUpdateRate != 1 && (world.paperSpigotConfig.grassUpdateRate < 1 || (MinecraftServer.currentTick + blockposition.hashCode()) % world.paperSpigotConfig.grassUpdateRate != 0)) { return; } // Paper
+         if (!world.isClientSide) {
+             int lightLevel = -1; // PandaSpigot
+             if (world.getType(blockposition.up()).getBlock().p() > 2 && (lightLevel = world.getLightLevel(blockposition.up())) < 4) { // PandaSpigot - Move light check to end to avoid unneeded light lookups
+diff --git a/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java b/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
+index 1848c2a6d0c959fed961e56d8d25db462eb6758a..73949b2a9c327e81a4139cb34058ba52bdfe1f7e 100644
+--- a/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
++++ b/src/main/java/org/github/paperspigot/PaperSpigotWorldConfig.java
+@@ -363,6 +363,12 @@ public class PaperSpigotWorldConfig
+         mobSpawnerTickRate = getInt( "mob-spawner-tick-rate", 1 );
+     }
+ 
++    public int grassUpdateRate = 1;
++    private void grassUpdateRate() {
++        grassUpdateRate = Math.max(0, getInt("grass-spread-tick-rate", grassUpdateRate));
++        log("Grass Spread Tick Rate: " + grassUpdateRate);
++    }
++
+     public boolean cacheChunkMaps;
+     private void cacheChunkMaps()
+     {
