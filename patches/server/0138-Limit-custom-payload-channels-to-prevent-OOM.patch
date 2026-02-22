@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: codenicollas <work.nicollas@gmail.com>
+Date: Sun, 22 Feb 2026 12:38:20 -0300
+Subject: [PATCH] Limit custom payload channels to prevent OOM
+
+
+diff --git a/src/main/java/net/minecraft/server/PlayerConnection.java b/src/main/java/net/minecraft/server/PlayerConnection.java
+index a4c9ee61ca31700b35250cb014f31ffc413cbf8c..a6d139ad4c707015c6dfa7362b5dbaa3a2892131 100644
+--- a/src/main/java/net/minecraft/server/PlayerConnection.java
++++ b/src/main/java/net/minecraft/server/PlayerConnection.java
+@@ -2255,10 +2255,17 @@ public class PlayerConnection implements PacketListenerPlayIn, IUpdatePlayerList
+         }
+         // CraftBukkit start
+         else if (packetplayincustompayload.a().equals("REGISTER")) {
+-            // PandaSpigot start - Disconnect for payload errors
++            // PandaSpigot start - Disconnect for payload errors & Memory Exploit Fix
+             try {
+                 String channels = packetplayincustompayload.b().toString(com.google.common.base.Charsets.UTF_8);
+-                for (String channel : channels.split("\0")) {
++                String[] splitChannels = channels.split("\0");
++
++                if (splitChannels.length > 128) {
++                    this.disconnect("Too many channels registered!");
++                    return;
++                }
++
++                for (String channel : splitChannels) {
+                     getPlayer().addChannel(channel);
+                 }
+             } catch (Exception ex) {
+@@ -2268,11 +2275,18 @@ public class PlayerConnection implements PacketListenerPlayIn, IUpdatePlayerList
+         } else if (packetplayincustompayload.a().equals("UNREGISTER")) {
+             try {
+                 String channels = packetplayincustompayload.b().toString(com.google.common.base.Charsets.UTF_8);
+-                for (String channel : channels.split("\0")) {
++                String[] splitChannels = channels.split("\0");
++
++                if (splitChannels.length > 128) {
++                    this.disconnect("Too many channels unregistered!");
++                    return;
++                }
++
++                for (String channel : splitChannels) {
+                     getPlayer().removeChannel(channel);
+                 }
+             } catch (Exception ex) {
+-                PlayerConnection.c.error("Couldn\'t register custom payload", ex);
++                PlayerConnection.c.error("Couldn\'t unregister custom payload", ex);
+                 this.disconnect("Invalid payload UNREGISTER!");
+             }
+         } else {
+@@ -2281,10 +2295,10 @@ public class PlayerConnection implements PacketListenerPlayIn, IUpdatePlayerList
+                 packetplayincustompayload.b().readBytes(data);
+                 server.getMessenger().dispatchIncomingMessage(player.getBukkitEntity(), packetplayincustompayload.a(), data);
+             } catch (Exception ex) {
+-                PlayerConnection.c.error("Couldn\'t register custom payload", ex);
++                PlayerConnection.c.error("Couldn\'t dispatch custom payload", ex);
+                 this.disconnect("Invalid custom payload!");
+             }
+-            // PandaSpigot end - Disconnect for payload errors
++            // PandaSpigot end - Disconnect for payload errors & Memory Exploit Fix
+         }
+         // CraftBukkit end
+         // CraftBukkit start
