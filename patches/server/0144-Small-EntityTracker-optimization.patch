@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: codenicollas <work.nicollas@gmail.com>
+Date: Mon, 23 Feb 2026 16:02:50 -0300
+Subject: [PATCH] Small EntityTracker optimization
+
+
+diff --git a/src/main/java/net/minecraft/server/EntityTrackerEntry.java b/src/main/java/net/minecraft/server/EntityTrackerEntry.java
+index ee5eccbc47771255683361051b581b5dd9775882..b933d8133f5ca539b9c7c3ff312022fa61fa4c1b 100644
+--- a/src/main/java/net/minecraft/server/EntityTrackerEntry.java
++++ b/src/main/java/net/minecraft/server/EntityTrackerEntry.java
+@@ -123,10 +123,14 @@ public class EntityTrackerEntry {
+                 int k1 = j - this.yLoc;
+                 int l1 = k - this.zLoc;
+                 Object object = null;
+-                boolean flag = Math.abs(j1) >= 4 || Math.abs(k1) >= 4 || Math.abs(l1) >= 4 || this.m % 60 == 0;
+-                boolean flag1 = Math.abs(l - this.yRot) >= 4 || Math.abs(i1 - this.xRot) >= 4;
++                // PandaSpigot start - moved down
++                /*boolean flag = Math.abs(j1) >= 4 || Math.abs(k1) >= 4 || Math.abs(l1) >= 4 || this.m % 60 == 0;
++                boolean flag1 = Math.abs(l - this.yRot) >= 4 || Math.abs(i1 - this.xRot) >= 4; */
++                // PandaSpigot end
+ 
+                 if (this.m > 0 || this.tracker instanceof EntityArrow) { // PaperSpigot - Moved up
++                    boolean flag = Math.abs(j1) >= 4 || Math.abs(k1) >= 4 || Math.abs(l1) >= 4 || this.m % 60 == 0;
++
+                     // CraftBukkit start - Code moved from below
+                     if (flag) {
+                         this.xLoc = i;
+@@ -134,6 +138,7 @@ public class EntityTrackerEntry {
+                         this.zLoc = k;
+                     }
+ 
++                    boolean flag1 = Math.abs(l - this.yRot) >= 4 || Math.abs(i1 - this.xRot) >= 4;
+                     if (flag1) {
+                         this.yRot = l;
+                         this.xRot = i1;
