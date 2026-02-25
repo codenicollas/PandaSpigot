@@ -1,58 +1,36 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: codenicollas <work.nicollas@gmail.com>
-Date: Mon, 23 Feb 2026 15:49:24 -0300
-Subject: [PATCH] Port Lithium's ChunkCache pathing optimizations
+Date: Wed, 25 Feb 2026 18:07:34 -0300
+Subject: [PATCH] Optimize AI ChunkCache by Lithium
 
 
 diff --git a/src/main/java/net/minecraft/server/ChunkCache.java b/src/main/java/net/minecraft/server/ChunkCache.java
-index 97acfc07ead11e4f692603ee1dca4465b1c44427..fcb249aa0945baf625acf69a93ae32fc319a0f73 100644
+index 97acfc07ead11e4f692603ee1dca4465b1c44427..809ed09d5046f160a932a7f50727fd86c556ee47 100644
 --- a/src/main/java/net/minecraft/server/ChunkCache.java
 +++ b/src/main/java/net/minecraft/server/ChunkCache.java
-@@ -2,12 +2,23 @@ package net.minecraft.server;
+@@ -2,6 +2,13 @@ package net.minecraft.server;
  
  public class ChunkCache implements IBlockAccess {
  
-+    private static final IBlockData DEFAULT_BLOCK = Blocks.AIR.getBlockData(); // PandaSpigot - Lithium:
-+                                                                               // ai/pathing/ChunkCache
-+
-     protected int a;
-     protected int b;
-     protected Chunk[][] c;
-     protected boolean d;
-     protected World e;
- 
 +    // PandaSpigot start - Lithium: Optimize AI ChunkCache
-+    // A 1D view of the chunks available to this cache
++    private static final IBlockData DEFAULT_BLOCK = Blocks.AIR.getBlockData();
 +    private Chunk[] chunksFlat;
-+
 +    private int xLen;
 +    private int zLen;
 +    // PandaSpigot end
 +
-     public ChunkCache(World world, BlockPosition blockposition, BlockPosition blockposition1, int i) {
-         this.e = world;
-         this.a = blockposition.getX() - i >> 4;
-@@ -20,7 +31,8 @@ public class ChunkCache implements IBlockAccess {
- 
-         for (int l = this.a; l <= j; ++l) {
-             for (int i1 = this.b; i1 <= k; ++i1) {
--                this.c[l - this.a][i1 - this.b] = world.getChunkIfLoaded(l, i1); // PandaSpigot - Don't load chunks for pathfinding
-+                this.c[l - this.a][i1 - this.b] = world.getChunkIfLoaded(l, i1); // PandaSpigot - Don't load chunks for
-+                                                                                 // pathfinding
-             }
-         }
- 
-@@ -34,6 +46,17 @@ public class ChunkCache implements IBlockAccess {
+     protected int a;
+     protected int b;
+     protected Chunk[][] c;
+@@ -34,6 +41,15 @@ public class ChunkCache implements IBlockAccess {
              }
          }
  
 +        // PandaSpigot start - Lithium: Optimize AI ChunkCache
-+        this.xLen = 1 + (blockposition1.getX() >> 4) - (blockposition.getX() >> 4);
-+        this.zLen = 1 + (blockposition1.getZ() >> 4) - (blockposition.getZ() >> 4);
-+
++        this.xLen = this.c.length;
++        this.zLen = this.c[0].length;
 +        this.chunksFlat = new Chunk[this.xLen * this.zLen];
-+        
-+        // Flatten the 2D chunk array into our 1D array
++
 +        for (int x = 0; x < this.xLen; x++) {
 +            System.arraycopy(this.c[x], 0, this.chunksFlat, x * this.zLen, this.zLen);
 +        }
@@ -60,7 +38,7 @@ index 97acfc07ead11e4f692603ee1dca4465b1c44427..fcb249aa0945baf625acf69a93ae32fc
      }
  
      @Override
-@@ -46,20 +69,34 @@ public class ChunkCache implements IBlockAccess {
+@@ -46,20 +62,31 @@ public class ChunkCache implements IBlockAccess {
  
      @Override
      public IBlockData getType(BlockPosition blockposition) {
@@ -75,14 +53,13 @@ index 97acfc07ead11e4f692603ee1dca4465b1c44427..fcb249aa0945baf625acf69a93ae32fc
 +        if (y >= 0 && y < 256) {
 +            int x = blockposition.getX();
 +            int z = blockposition.getZ();
- 
++
 +            int chunkX = (x >> 4) - this.a;
 +            int chunkZ = (z >> 4) - this.b;
 +
 +            if (chunkX >= 0 && chunkX < this.xLen && chunkZ >= 0 && chunkZ < this.zLen) {
 +                Chunk chunk = this.chunksFlat[(chunkX * this.zLen) + chunkZ];
-+
-+                // Avoid going through Chunk#getBlockState
+ 
                  if (chunk != null) {
 -                    return chunk.getBlockData(blockposition);
 +                    ChunkSection section = chunk.getSections()[y >> 4];
@@ -90,8 +67,6 @@ index 97acfc07ead11e4f692603ee1dca4465b1c44427..fcb249aa0945baf625acf69a93ae32fc
 +                    if (section != null) {
 +                        return section.getType(x & 15, y & 15, z & 15);
 +                    }
-+
-+                    //return chunk.getBlockData(blockposition); // PandaSpigot - Lithium: Optimize AI ChunkCache
                  }
              }
          }

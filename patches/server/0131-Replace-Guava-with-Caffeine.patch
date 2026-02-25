@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: codenicollas <work.nicollas@gmail.com>
-Date: Mon, 23 Feb 2026 14:51:34 -0300
+Date: Wed, 25 Feb 2026 18:15:00 -0300
 Subject: [PATCH] Replace Guava with Caffeine
 
 
@@ -66,32 +66,7 @@ index 871558c82e54b2fa70c17f1fbbcda5ec64c35c5a..cc24a8116817f78d2c607a1e22e0dda9
      private YamlConfiguration commandsConfiguration;
      private final Yaml yaml = new Yaml(new SafeConstructor());
 -    private final Map<UUID, OfflinePlayer> offlinePlayers = new MapMaker().softValues().makeMap();
-+    private final com.github.benmanes.caffeine.cache.Cache<UUID, OfflinePlayer> offlinePlayers = com.github.benmanes.caffeine.cache.Caffeine.newBuilder().weakValues().build(); // PandaSpigot - replace guava cache with caffeine
++    private final Map<UUID, OfflinePlayer> offlinePlayers = com.github.benmanes.caffeine.cache.Caffeine.newBuilder().softValues().<UUID, OfflinePlayer>build().asMap(); // PandaSpigot - replace guava cache with caffeine
      private final EntityMetadataStore entityMetadata = new EntityMetadataStore();
      private final PlayerMetadataStore playerMetadata = new PlayerMetadataStore();
      private final WorldMetadataStore worldMetadata = new WorldMetadataStore();
-@@ -1408,7 +1408,7 @@ public final class CraftServer implements Server {
-                 result = getOfflinePlayer(profile);
-             }
-         } else {
--            offlinePlayers.remove(result.getUniqueId());
-+            offlinePlayers.invalidate(result.getUniqueId()); // PandaSpigot - use caffeine
-         }
- 
-         return result;
-@@ -1420,13 +1420,13 @@ public final class CraftServer implements Server {
- 
-         OfflinePlayer result = getPlayer(id);
-         if (result == null) {
--            result = offlinePlayers.get(id);
-+            result = offlinePlayers.getIfPresent(id); // PandaSpigot - use caffeine
-             if (result == null) {
-                 result = new CraftOfflinePlayer(this, new GameProfile(id, null));
-                 offlinePlayers.put(id, result);
-             }
-         } else {
--            offlinePlayers.remove(id);
-+            offlinePlayers.invalidate(id); // PandaSpigot - use caffeine
-         }
- 
-         return result;

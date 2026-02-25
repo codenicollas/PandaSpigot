@@ -161,10 +161,10 @@ index c4c5b16c42719c802c928c871858f2c99021c9db..0d7e8dba325caf3cdb336f9c32ffd09f
          this.whitelist.add(new WhiteListEntry(gameprofile));
      }
 diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java/net/minecraft/server/WorldServer.java
-index ae32309798ff3e9c857bd144ecdc740440079ce4..87ae12c90541ae918083fcad314c4f5538143940 100644
+index 864b63f20167491ecef7e51be7d170d8b141d166..e1d15ccf57173e5c8612b03dda24c38dae756c6b 100644
 --- a/src/main/java/net/minecraft/server/WorldServer.java
 +++ b/src/main/java/net/minecraft/server/WorldServer.java
-@@ -939,7 +939,8 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+@@ -949,7 +949,8 @@ public class WorldServer extends World implements IAsyncTaskHandler {
  
      public void save(boolean flag, IProgressUpdate iprogressupdate) throws ExceptionWorldConflict {
          if (this.chunkProvider.canSave()) {
@@ -174,7 +174,7 @@ index ae32309798ff3e9c857bd144ecdc740440079ce4..87ae12c90541ae918083fcad314c4f55
              if (iprogressupdate != null) {
                  iprogressupdate.a("Saving level");
              }
-@@ -948,6 +949,7 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+@@ -958,6 +959,7 @@ public class WorldServer extends World implements IAsyncTaskHandler {
              if (iprogressupdate != null) {
                  iprogressupdate.c("Saving chunks");
              }
